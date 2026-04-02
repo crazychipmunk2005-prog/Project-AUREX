@@ -16,6 +16,19 @@
   letter-spacing: 0.08em;
 }
 
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.brand-logo {
+  width: 34px;
+  height: 34px;
+  border-radius: 6px;
+  object-fit: cover;
+}
+
 .sub {
   margin: 8px 0 20px;
   color: #9aa5bb;
@@ -30,6 +43,14 @@
   display: block;
   margin-bottom: 10px;
   color: #c3cee3;
+}
+
+.control-block select {
+  width: 100%;
+  border: 1px solid #3f4a63;
+  background: #1a2334;
+  color: #c8d2e6;
+  padding: 8px;
 }
 
 .toggle-row {

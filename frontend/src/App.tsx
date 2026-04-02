@@ -3,6 +3,7 @@ import { MapContainer, TileLayer } from 'react-leaflet'
 import './App.css'
 
 type Metric = 'lst' | 'ndvi'
+type Region = 'westcoast' | 'kerala'
 
 const TITILER_BASE = 'https://aurex-tiles.onrender.com'
 
@@ -10,6 +11,21 @@ const COG_URLS = {
   lst: 'https://raw.githubusercontent.com/crazychipmunk2005-prog/Project-AUREX/main/x-data/v1/region/lst/aurex_westcoast_context_lst_2019_2024_monthly_stack_v1.tif',
   ndvi:
     'https://raw.githubusercontent.com/crazychipmunk2005-prog/Project-AUREX/main/x-data/v1/region/ndvi/aurex_westcoast_context_ndvi_2019_2024_monthly_stack_v1.tif',
+} as const
+
+const REGION_CONFIG = {
+  westcoast: {
+    label: 'Westcoast Context',
+    center: [10.6, 76.2] as [number, number],
+    zoom: 7,
+    sourceSuffix: '',
+  },
+  kerala: {
+    label: 'Kerala Focus',
+    center: [10.35, 76.35] as [number, number],
+    zoom: 8,
+    sourceSuffix: '?v=2',
+  },
 } as const
 
 const START_YEAR = 2019
@@ -27,8 +43,9 @@ function buildMonthLabels(): string[] {
 
 const MONTH_LABELS = buildMonthLabels()
 
-function buildTileUrl(metric: Metric, bandIndex: number): string {
-  const source = encodeURIComponent(COG_URLS[metric])
+function buildTileUrl(metric: Metric, region: Region, bandIndex: number): string {
+  const sourceUrl = `${COG_URLS[metric]}${REGION_CONFIG[region].sourceSuffix}`
+  const source = encodeURIComponent(sourceUrl)
   const rescale = metric === 'lst' ? '20,45' : '0,1'
   const colormap = metric === 'lst' ? 'inferno' : 'ylgn'
   return `${TITILER_BASE}/cog/tiles/{z}/{x}/{y}?url=${source}&bidx=${bandIndex}&rescale=${rescale}&colormap_name=${colormap}`
@@ -36,16 +53,32 @@ function buildTileUrl(metric: Metric, bandIndex: number): string {
 
 function App() {
   const [metric, setMetric] = useState<Metric>('lst')
+  const [region, setRegion] = useState<Region>('westcoast')
   const [step, setStep] = useState(1)
 
   const selectedMonth = MONTH_LABELS[step - 1]
-  const tileUrl = useMemo(() => buildTileUrl(metric, step), [metric, step])
+  const tileUrl = useMemo(() => buildTileUrl(metric, region, step), [metric, region, step])
 
   return (
     <div className="app">
       <aside className="panel">
-        <h1>AUREX</h1>
+        <div className="brand">
+          <img src="/aurex-logo.png" alt="AUREX logo" className="brand-logo" />
+          <h1>AUREX</h1>
+        </div>
         <p className="sub">Kerala + Lakshadweep Historical Explorer</p>
+
+        <div className="control-block">
+          <label htmlFor="region">Region</label>
+          <select
+            id="region"
+            value={region}
+            onChange={(event) => setRegion(event.target.value as Region)}
+          >
+            <option value="westcoast">Westcoast Context</option>
+            <option value="kerala">Kerala Focus</option>
+          </select>
+        </div>
 
         <div className="control-block">
           <label>Metric</label>
@@ -80,7 +113,12 @@ function App() {
       </aside>
 
       <main className="map-wrap">
-        <MapContainer center={[10.6, 76.2]} zoom={7} className="map">
+        <MapContainer
+          key={region}
+          center={REGION_CONFIG[region].center}
+          zoom={REGION_CONFIG[region].zoom}
+          className="map"
+        >
           <TileLayer
             attribution='&copy; OpenStreetMap contributors'
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"

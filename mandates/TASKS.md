@@ -69,7 +69,7 @@ Deliver a zero-maintenance static geospatial pipeline for AUREX.
 ---
 
 ### TASK-S005 — Frontend Timeline Integration (Static)
-**Status:** Pending
+**Status:** Completed
 
 **Acceptance criteria:**
 - Slider controls monthly band index 1..72.
