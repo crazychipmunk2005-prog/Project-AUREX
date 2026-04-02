@@ -4,13 +4,13 @@ from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
-    gee_project_id: str
-    gee_service_account: str
-    gee_key_file: str
+    gee_project_id: str = "dummy-project"
+    gee_service_account: str = "dummy@service.com"
+    gee_key_file: str = "dummy-key.json"
     env: str = "development"
-    allowed_origins: list[str]
+    allowed_origins: list[str] = ["http://localhost:3000"]
     rate_limit: str = "10/minute"
-    internal_api_key: str
+    internal_api_key: str = "dummy-api-key"
     redis_url: str = ""
 
     class Config:
