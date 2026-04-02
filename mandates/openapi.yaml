@@ -1,0 +1,466 @@
+openapi: 3.1.0
+
+info:
+  title: Urban Heat Island Analysis API
+  version: 1.0.0
+  description: |
+    Backend API for the Urban Heat Island Analysis Platform.
+    All heavy computation runs via Google Earth Engine.
+    Pixel data never passes through this API — only tile URLs and statistical summaries.
+
+servers:
+  - url: http://localhost:8000
+    description: Local development
+  - url: https://uhi-api.onrender.com
+    description: Production (Render)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SHARED SCHEMAS
+# ─────────────────────────────────────────────────────────────────────────────
+
+components:
+  schemas:
+
+    BBox:
+      type: array
+      description: Bounding box in WGS84. Format [minLon, minLat, maxLon, maxLat].
+      items:
+        type: number
+        format: float
+      minItems: 4
+      maxItems: 4
+      example: [72.77, 18.89, 72.99, 19.27]
+
+    DateString:
+      type: string
+      format: date
+      description: ISO 8601 date (YYYY-MM-DD). Must not be before 2001-01-01 (MODIS launch).
+      example: "2023-06-01"
+
+    TemperatureStats:
+      type: object
+      properties:
+        min_temp:
+          type: number
+          format: float
+          description: Minimum LST in the region (°C)
+        max_temp:
+          type: number
+          format: float
+          description: Maximum LST in the region (°C)
+        mean_temp:
+          type: number
+          format: float
+          description: Mean LST in the region (°C)
+      required: [min_temp, max_temp, mean_temp]
+
+    ApiError:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        data:
+          type: "null"
+        error:
+          type: string
+          description: Human-readable error description
+          example: "GEE computation failed: User memory limit exceeded"
+        cached:
+          type: boolean
+          example: false
+      required: [success, error, cached]
+
+  responses:
+    ValidationError:
+      description: Invalid request parameters
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ApiError'
+          example:
+            success: false
+            data: null
+            error: "bbox area exceeds maximum of 50,000 km²"
+            cached: false
+
+    GEEError:
+      description: GEE computation failed
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ApiError'
+          example:
+            success: false
+            data: null
+            error: "GEE service unavailable. Try again shortly."
+            cached: false
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ENDPOINTS
+# ─────────────────────────────────────────────────────────────────────────────
+
+paths:
+
+  /health:
+    get:
+      summary: Health check
+      description: Returns server status. Used by uptime monitors to prevent Render spin-down.
+      operationId: health_check
+      tags: [System]
+      responses:
+        "200":
+          description: Server is running
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "ok"
+                  version:
+                    type: string
+                    example: "1.0.0"
+
+
+  /api/heatmap:
+    post:
+      summary: Get LST heatmap tile URL
+      description: |
+        Returns a GEE tile URL for MODIS Land Surface Temperature (LST) over the
+        specified bounding box and date range. The tile URL is consumed directly by
+        Leaflet — pixel data does not pass through this API.
+
+        Data source: MODIS MOD11A2, band LST_Day_1km
+        Units: Celsius (scale factor and offset applied by backend)
+        Typical response time: 3–15 seconds (GEE computation)
+        Cache TTL: 6 hours
+      operationId: get_heatmap
+      tags: [Heatmap]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                bbox:
+                  $ref: '#/components/schemas/BBox'
+                start_date:
+                  $ref: '#/components/schemas/DateString'
+                end_date:
+                  $ref: '#/components/schemas/DateString'
+              required: [bbox, start_date, end_date]
+            example:
+              bbox: [72.77, 18.89, 72.99, 19.27]
+              start_date: "2023-05-01"
+              end_date: "2023-05-31"
+      responses:
+        "200":
+          description: Heatmap tile URL and temperature statistics
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: object
+                    properties:
+                      tile_url:
+                        type: string
+                        description: Leaflet-compatible GEE tile URL template ({x}, {y}, {z})
+                        example: "https://earthengine.googleapis.com/v1/projects/.../maps/.../tiles/{z}/{x}/{y}"
+                      stats:
+                        $ref: '#/components/schemas/TemperatureStats'
+                  error:
+                    type: "null"
+                  cached:
+                    type: boolean
+                    example: false
+                required: [success, data, error, cached]
+        "422":
+          $ref: '#/components/responses/ValidationError'
+        "503":
+          $ref: '#/components/responses/GEEError'
+
+
+  /api/timeseries:
+    get:
+      summary: Get monthly LST time series
+      description: |
+        Returns monthly mean and maximum Land Surface Temperature for a bounding box
+        over a specified date range.
+
+        Data source: MODIS MOD11A2
+        Aggregation: Monthly mean and max, spatially averaged over the bbox
+        Cache TTL: 24 hours (historical data is immutable)
+      operationId: get_timeseries
+      tags: [Temporal]
+      parameters:
+        - name: bbox
+          in: query
+          required: true
+          description: "Bounding box as comma-separated floats: minLon,minLat,maxLon,maxLat"
+          schema:
+            type: string
+          example: "72.77,18.89,72.99,19.27"
+        - name: start_date
+          in: query
+          required: true
+          schema:
+            $ref: '#/components/schemas/DateString'
+          example: "2020-01-01"
+        - name: end_date
+          in: query
+          required: true
+          schema:
+            $ref: '#/components/schemas/DateString'
+          example: "2023-12-31"
+      responses:
+        "200":
+          description: Monthly LST time series
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: object
+                    properties:
+                      dates:
+                        type: array
+                        items:
+                          type: string
+                          format: yearmonth
+                        example: ["2020-01", "2020-02", "2020-03"]
+                      mean_lst:
+                        type: array
+                        items:
+                          type: number
+                          format: float
+                        description: Monthly mean LST in Celsius
+                        example: [28.3, 29.1, 31.5]
+                      max_lst:
+                        type: array
+                        items:
+                          type: number
+                          format: float
+                        description: Monthly maximum LST in Celsius
+                        example: [34.2, 35.8, 38.1]
+                  error:
+                    type: "null"
+                  cached:
+                    type: boolean
+                required: [success, data, error, cached]
+        "422":
+          $ref: '#/components/responses/ValidationError'
+        "503":
+          $ref: '#/components/responses/GEEError'
+
+
+  /api/hotspots:
+    get:
+      summary: Get ranked heat hotspots
+      description: |
+        Identifies and ranks geographic zones with extreme heat within the bounding box.
+        Threshold: cells with LST > mean + 2 standard deviations are classified as hotspots.
+
+        Returns a GeoJSON FeatureCollection of hotspot centroids, ranked by severity.
+        Cache TTL: 6 hours
+      operationId: get_hotspots
+      tags: [Hotspots]
+      parameters:
+        - name: bbox
+          in: query
+          required: true
+          schema:
+            type: string
+          example: "72.77,18.89,72.99,19.27"
+        - name: date
+          in: query
+          required: true
+          description: Target date (uses the 8-day MODIS composite containing this date)
+          schema:
+            $ref: '#/components/schemas/DateString'
+          example: "2023-06-15"
+        - name: top_n
+          in: query
+          required: false
+          description: Number of hotspots to return (default 10, max 50)
+          schema:
+            type: integer
+            default: 10
+            minimum: 1
+            maximum: 50
+      responses:
+        "200":
+          description: GeoJSON FeatureCollection of hotspots
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: object
+                    properties:
+                      type:
+                        type: string
+                        example: "FeatureCollection"
+                      features:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            type:
+                              type: string
+                              example: "Feature"
+                            geometry:
+                              type: object
+                              properties:
+                                type:
+                                  type: string
+                                  example: "Point"
+                                coordinates:
+                                  type: array
+                                  items:
+                                    type: number
+                                  example: [72.88, 19.05]
+                            properties:
+                              type: object
+                              properties:
+                                rank:
+                                  type: integer
+                                  example: 1
+                                mean_temp:
+                                  type: number
+                                  format: float
+                                  description: Mean LST at this hotspot (°C)
+                                  example: 42.3
+                                severity:
+                                  type: string
+                                  enum: [high, extreme]
+                                  example: "extreme"
+                  error:
+                    type: "null"
+                  cached:
+                    type: boolean
+                required: [success, data, error, cached]
+        "422":
+          $ref: '#/components/responses/ValidationError'
+        "503":
+          $ref: '#/components/responses/GEEError'
+
+
+  /api/landuse:
+    get:
+      summary: Get land use classification overlay
+      description: |
+        Returns dominant land use class per grid cell for the bounding box using
+        Google Dynamic World v1 (10m resolution, near-real-time).
+
+        Classes: water, trees, grass, flooded_vegetation, crops,
+                 shrub_and_scrub, built, bare, snow_and_ice
+
+        Cache TTL: 24 hours
+      operationId: get_landuse
+      tags: [Land Use]
+      parameters:
+        - name: bbox
+          in: query
+          required: true
+          schema:
+            type: string
+          example: "72.77,18.89,72.99,19.27"
+        - name: date
+          in: query
+          required: true
+          schema:
+            $ref: '#/components/schemas/DateString'
+          example: "2023-06-01"
+      responses:
+        "200":
+          description: GeoJSON FeatureCollection of land use zones
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      type:
+                        type: string
+                        example: "FeatureCollection"
+                      features:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            type:
+                              type: string
+                              example: "Feature"
+                            geometry:
+                              type: object
+                            properties:
+                              type: object
+                              properties:
+                                class:
+                                  type: string
+                                  enum: [water, trees, grass, flooded_vegetation, crops,
+                                         shrub_and_scrub, built, bare, snow_and_ice]
+                                  example: "built"
+                                color:
+                                  type: string
+                                  description: Hex color for frontend rendering
+                                  example: "#c4a35a"
+                  error:
+                    type: "null"
+                  cached:
+                    type: boolean
+                required: [success, data, error, cached]
+        "422":
+          $ref: '#/components/responses/ValidationError'
+        "503":
+          $ref: '#/components/responses/GEEError'
+
+
+  /api/cache/stats:
+    get:
+      summary: Cache diagnostics
+      description: Returns cache hit/miss statistics. Development and monitoring use only.
+      operationId: get_cache_stats
+      tags: [System]
+      responses:
+        "200":
+          description: Cache statistics
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  hit_count:
+                    type: integer
+                    example: 143
+                  miss_count:
+                    type: integer
+                    example: 27
+                  entry_count:
+                    type: integer
+                    example: 22
+                  hit_rate_pct:
+                    type: number
+                    format: float
+                    example: 84.1

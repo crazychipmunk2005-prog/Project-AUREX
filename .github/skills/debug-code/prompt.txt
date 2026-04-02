@@ -1,0 +1,170 @@
+p1
+Build a React component that displays a full world map using Leaflet.
+
+Requirements:
+
+* Use react-leaflet
+* Map should fill entire screen
+* Enable zoom and pan
+* Keep implementation minimal and functional
+
+Return only the component code.
+test
+
+p2
+Build a React component that displays a full world map using Leaflet.
+
+Requirements:
+
+* Use react-leaflet
+* Map should fill entire screen
+* Enable zoom and pan
+* Keep implementation minimal and functional
+
+Return only the component code.
+test
+
+p3
+Extend the existing Leaflet map component to allow users to draw a rectangle or polygon.
+
+Requirements:
+
+* Use leaflet-draw or compatible approach
+* Capture selected region as GeoJSON
+* Log the GeoJSON to console
+* Disable unnecessary tools (no circle, no marker)
+
+Do not change existing structure unnecessarily.
+test
+
+p4
+Modify the map component to store the selected GeoJSON area in React state.
+
+Requirements:
+
+* Save the drawn geometry in state
+* Replace console.log with state update
+* Ensure only one area is active at a time
+
+Return only updated component code.
+test
+
+p5
+Integrate the control panel with the map component.
+
+Requirements:
+
+* Store selected years in state
+* Combine with selected GeoJSON
+* Prepare data object for backend
+
+Do not call backend yet.
+test
+
+p6
+Integrate the control panel with the map component.
+
+Requirements:
+
+* Store selected years in state
+* Combine with selected GeoJSON
+* Prepare data object for backend
+
+Do not call backend yet.
+test
+
+p7
+Implement a function to send selected GeoJSON and year range to a backend endpoint.
+
+Requirements:
+
+* POST request to /analyze-area
+* Send:
+
+  * geometry
+  * start_year
+  * end_year
+* For now, mock the response (no real backend)
+
+Return clean API call function.
+test
+
+p8
+Create a basic FastAPI backend for AUREX.
+
+Requirements:
+
+* Endpoint: POST /analyze-area
+* Accept:
+
+  * GeoJSON
+  * start_year
+  * end_year
+* Return dummy structured response
+
+Keep it minimal.
+test
+
+p9
+Replace mock API call with real FastAPI backend call.
+
+Requirements:
+
+* Use fetch or axios
+* Handle response properly
+* Display returned data
+
+Keep error handling simple.
+test
+
+p10
+Implement Google Earth Engine integration in FastAPI backend.
+
+Requirements:
+
+* Convert GeoJSON to GEE geometry
+* Fetch Land Surface Temperature for given years
+* Return processed data
+
+Keep implementation simple and efficient.
+test
+
+p11
+Add logic to compute temperature difference between start and end year.
+
+Requirements:
+
+* Return difference map data
+* Identify hotspots
+* Keep calculations simple
+
+Do not overcomplicate.
+test
+
+p12
+Generate simple insights from processed data.
+
+Include:
+
+* Average temperature change
+* Maximum change zone
+* Vegetation change
+* Dominant cause (based on correlation)
+
+Keep explanations data-driven, not AI-generated guesses.
+test
+
+p13
+Implement K-Means clustering for grouping zones.
+
+Inputs:
+
+* Temperature change
+* Vegetation index
+
+Output:
+
+* Low, Medium, High heat zones
+
+Keep implementation simple using scikit-learn.
+test

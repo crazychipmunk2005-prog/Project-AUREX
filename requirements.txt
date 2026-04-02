@@ -1,0 +1,7 @@
+fastapi==0.111.0
+uvicorn==0.29.0
+earthengine-api==0.1.396
+pydantic==2.7.1
+pydantic-settings==2.2.1
+slowapi==0.1.9
+python-dotenv==1.0.1
