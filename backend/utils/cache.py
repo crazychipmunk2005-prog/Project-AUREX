@@ -7,7 +7,7 @@ _cache: dict[str, tuple[Any, float]] = {}
 
 MAX_CACHE_ENTRIES = 500
 
-CACHE_TTL_HEATMAP = 3 * 60 * 60
+CACHE_TTL_HEATMAP = 6 * 60 * 60
 CACHE_TTL_TIMESERIES = 24 * 60 * 60
 CACHE_TTL_LANDUSE = 24 * 60 * 60
 

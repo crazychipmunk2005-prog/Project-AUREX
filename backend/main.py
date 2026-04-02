@@ -2,11 +2,15 @@ import logging
 from contextlib import asynccontextmanager
 from typing import AsyncIterator
 
-import ee
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
+
+try:
+    import ee
+except ImportError:  # pragma: no cover
+    ee = None
 
 from backend.config.settings import get_settings
 from backend.routes.heatmap import router as heatmap_router
@@ -49,6 +53,15 @@ class RequestSizeLimitMiddleware(BaseHTTPMiddleware):
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings = get_settings()
+    app.state.gee_available = False
+
+    if settings.demo_mode:
+        logger.info("Demo mode enabled; skipping GEE initialization")
+        yield
+        return
+
+    if ee is None:
+        raise RuntimeError("earthengine-api is required when DEMO_MODE=false")
 
     try:
         credentials = ee.ServiceAccountCredentials(
@@ -56,9 +69,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             settings.gee_key_file,
         )
         ee.Initialize(credentials, project=settings.gee_project_id)
+        app.state.gee_available = True
         logger.info("GEE initialized successfully")
-    except Exception:
-        logger.exception("GEE initialization failed")
+    except Exception as exc:  # pragma: no cover
+        logger.error(
+            "GEE initialization failed; continuing without live GEE",
+            exc_info=exc,
+        )
 
     yield
 

@@ -298,3 +298,31 @@ GEE calls are expensive (3–30 seconds). Caching is essential for usability.
 **Trade-offs:**
 - In-memory cache is per-process — multiple workers in prod would each have separate caches
 - Mitigation: Redis in prod ensures all workers share one cache
+
+---
+
+## ADR-012: Static-first runtime (no live GEE calls)
+
+**Status:** Accepted
+**Date:** Sprint transition
+
+**Decision:**
+Runtime architecture uses TiTiler + static COGs. GEE is used only in offline export scripts.
+
+**Context:**
+Portfolio objective requires high reliability and near-zero maintenance on free tiers for 12+ months.
+Live runtime GEE introduced startup failures, quota coupling, and operational fragility.
+
+**Rationale:**
+- Static COG delivery is predictable and cache-friendly
+- Eliminates runtime dependency on GEE IAM/token state
+- Reduces failure points to frontend hosting + TiTiler + object storage
+- Better fit for timeline-based historical exploration
+
+**Trade-offs:**
+- Runtime flexibility is reduced (no arbitrary ad hoc processing)
+- New analysis requires offline re-export pipeline execution
+
+**Alternatives rejected:**
+- Continue live GEE runtime for map interaction
+- Hybrid path where some routes compute from GEE live in production

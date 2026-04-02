@@ -1,267 +1,209 @@
-# System Architecture
+# System Architecture (Static-First)
+
+---
+
+## 0. Architectural Direction (Authoritative)
+
+The platform is now **static-first**.
+
+- No live Google Earth Engine (GEE) calls at runtime.
+- All satellite processing is done offline, exported once, and hosted as static assets.
+- Runtime map rendering uses TiTiler + COGs only.
+
+This supersedes prior runtime-GEE flow for v1 portfolio delivery.
 
 ---
 
 ## 1. Layer Definitions
 
-### Layer 1 — Frontend (React / Vite)
+### Layer 1 — Frontend (React / Vite / Leaflet)
 **Owns:**
-- All user input (location search, date range, layer toggles)
-- Map rendering (Leaflet + GEE tile URL overlays)
-- Chart rendering (Recharts)
-- Loading / error / empty states
-- API orchestration (calling backend services via /services)
+- User input: city selector, metric selector, timeline slider (2019-01 to 2024-12)
+- Map rendering with Leaflet TileLayer
+- Tile URL parameter orchestration (`bidx`, `rescale`, `colormap`)
+- Lightweight UI-only formatting (labels, legends, loading states)
 
 **Does NOT own:**
-- GEE logic of any kind
-- Data transformation beyond display formatting (rounding, labels)
-- Business logic — that belongs in backend services
+- Raster computation
+- Satellite preprocessing
+- Credential signing logic
 
 ---
 
-### Layer 2 — Backend (FastAPI)
+### Layer 2 — Tile API (TiTiler)
 **Owns:**
-- Request validation (Pydantic models — all inputs validated before GEE is touched)
-- Caching (Redis in prod, in-memory dict in dev)
-- GEE service orchestration (calls services/gee_service.py)
-- Standardized error responses
-- Rate limiting (slowapi middleware)
-- Secret management (env vars, never in code)
+- Reading Cloud-Optimized GeoTIFFs (COGs) via HTTPS URL
+- Serving XYZ tiles for requested zoom/x/y
+- Applying band selection and visualization params per request
 
 **Does NOT own:**
-- UI logic
-- Pixel data storage (raw tiles never touch the backend)
-- Serving map tiles (GEE tile servers handle this directly)
+- Satellite science/business logic
+- Data preprocessing
+- User session state
 
 ---
 
-### Layer 3 — Google Earth Engine
+### Layer 3 — Static Storage (Cloudflare R2)
 **Owns:**
-- All satellite data computation
-- LST calculation + scale factor conversion
-- NDVI computation
-- Spatial statistics (reduceRegion, zonal stats)
-- Tile URL generation (getMapId)
-- Actual tile serving to Leaflet
+- Long-lived storage of final COG assets and metadata JSON
+- Public read access for TiTiler input URLs
+- Immutable caching headers for stable delivery
 
 **Does NOT own:**
-- User session management
-- Caching
-- Input validation
+- Tile rendering
+- Geospatial computation
 
 ---
 
-## 2. Data Flow Patterns
+### Layer 4 — Offline Data Pipeline (One-time / batch)
+**Owns:**
+- GEE export of monthly composites (LST, NDVI)
+- Data normalization and COG optimization (if required)
+- Optional precomputed stats/metadata generation
 
-There are exactly two data flow patterns in this system.
-Every GEE feature fits into one of them. Do not invent a third.
+**Does NOT own:**
+- Runtime request handling
+- Interactive UI state
 
 ---
 
-### Pattern A — Tile Flow (for map visualization)
+## 2. Runtime Data Flow
 
-Used by: `/api/heatmap`, `/api/landuse`
+### Pattern A — Raster Tile Flow (primary interaction)
+
+Used by: timeline slider + metric toggle + city selection
+
+```
+[Browser / React + Leaflet]
+   │
+   ├─ User picks city + metric + month step (1..72)
+   │
+   ├─ Build TiTiler URL:
+   │   /cog/tiles/{z}/{x}/{y}?url=<cog_url>&bidx=<band>&rescale=<min,max>&colormap_name=<name>
+   │
+   ├─► TiTiler reads COG from Cloudflare R2
+   │
+   └─◄ PNG/WebP tiles rendered in Leaflet
+```
+
+**Key rule:** Runtime never calls GEE.
+
+---
+
+### Pattern B — Metadata Flow (supporting UI)
+
+Used by: timeline labels, city extents, legend config
 
 ```
 [Browser]
-   │
-   ├─1─► POST /api/heatmap  {bbox, start_date, end_date}
-   │         │
-   │         ├── Pydantic validation (bbox area, date format, range)
-   │         ├── Cache check → HIT: return cached tile_url immediately
-   │         │                 MISS: continue
-   │         │
-   │         └── asyncio.to_thread(gee_service.get_lst_tile, bbox, dates)
-   │                   │
-   │                   └── ee.Image(MODIS MOD11A2)
-   │                         .filterDate(start, end)
-   │                         .filterBounds(roi)
-   │                         .select('LST_Day_1km')
-   │                         .mean()
-   │                         .multiply(0.02).subtract(273.15)   ← Celsius
-   │                         .getMapId({palette: [...]})
-   │                         → returns {tile_url, token}
-   │
-   ├─2─◄ Response: {success, data: {tile_url, stats}, cached}
-   │
-   └─3─► Leaflet: L.tileLayer(tile_url).addTo(map)
-              │
-              └─► Tiles rendered: [Browser] ◄──────────────── [GEE Tile Servers]
-                                             (direct connection — zero backend load)
-```
-
-**Key rule:** Pixel data never passes through FastAPI. Only the tile URL does.
-
----
-
-### Pattern B — Statistics Flow (for charts and ranked data)
-
-Used by: `/api/timeseries`, `/api/hotspots`
-
-```
-[Browser]
-   │
-   ├─1─► GET /api/timeseries  ?bbox=...&start=...&end=...
-   │         │
-   │         ├── Pydantic validation
-   │         ├── Cache check → HIT / MISS
-   │         │
-   │         └── asyncio.to_thread(gee_service.get_lst_timeseries, ...)
-   │                   │
-   │                   └── ee.ImageCollection(MODIS)
-   │                         .filterDate().filterBounds()
-   │                         .map(scale_to_celsius)
-   │                         .map(lambda img: img.reduceRegion(
-   │                               reducer=ee.Reducer.mean(),
-   │                               geometry=roi,
-   │                               scale=1000
-   │                         ))
-   │                         → returns list of {date, mean_lst}
-   │
-   ├─2─◄ Response: {success, data: {dates: [...], values: [...]}, cached}
-   │
-   └─3─► Recharts <LineChart> renders the timeseries
-```
-
-**Key rule:** Only aggregated statistics travel through the backend. No pixel arrays.
-
----
-
-## 3. Caching Architecture
-
-### Cache Key Format
-```
-{endpoint}:{sha256(bbox_normalized + start_date + end_date + extra_params)}
-```
-
-Always normalize bbox coordinates before hashing (round to 4 decimal places)
-to prevent cache misses from floating point noise.
-
-### TTL Policy
-| Endpoint | TTL | Rationale |
-|----------|-----|-----------|
-| /api/heatmap | 6 hours | MODIS composites update every 8 days |
-| /api/timeseries | 24 hours | Historical data is immutable |
-| /api/hotspots | 6 hours | Derived from heatmap — same freshness |
-| /api/landuse | 24 hours | Land classification changes on timescale of months |
-
-### Cache Implementation
-```python
-# Development (no Redis required)
-_cache: dict[str, tuple[Any, float]] = {}   # {key: (value, expiry_timestamp)}
-
-# Production — identical interface, Redis backend
-# Drop-in swap: set REDIS_URL in .env, cache module detects and switches
+   ├─► GET static metadata JSON (R2 or frontend public assets)
+   └─◄ timeline index, extents, visualization presets
 ```
 
 ---
 
-## 4. GEE Dataset Reference
+## 3. Offline Data Pipeline Flow
 
-### Primary: MODIS MOD11A2
-```python
-collection_id = "MODIS/061/MOD11A2"
-band          = "LST_Day_1km"
-scale_factor  = 0.02      # multiply raw value
-offset        = -273.15   # subtract to get Celsius
-resolution    = 1000      # meters — use scale=1000 in reduceRegion
+```
+Google Earth Engine (batch export)
+    └─► GeoTIFF outputs (monthly stacks)
+         └─► Local QC / COG validation
+              └─► Upload to Cloudflare R2
+                   └─► TiTiler consumes by URL at runtime
 ```
 
-### NDVI: MODIS MOD13A2
-```python
-collection_id = "MODIS/061/MOD13A2"
-band          = "NDVI"
-scale_factor  = 0.0001
-resolution    = 500
-```
-
-### Land Use: Dynamic World v1
-```python
-collection_id = "GOOGLE/DYNAMICWORLD/V1"
-band          = "label"   # dominant class per pixel
-classes       = {0: "water", 1: "trees", 2: "grass", 3: "flooded_vegetation",
-                 4: "crops", 5: "shrub_and_scrub", 6: "built", 7: "bare", 8: "snow_and_ice"}
-resolution    = 10
-```
-
-### Landsat 8/9 LST (hotspot drill-down only — v2)
-Do not use in MVP. Cloud masking adds significant complexity.
-Use MODIS for all v1 features.
+### Export scope (locked)
+- Cities: Chennai, Bengaluru, Delhi
+- Metrics: LST and NDVI
+- Timeline: 2019-01 to 2024-12 (72 monthly steps)
+- Preferred asset shape: one 72-band COG per city per metric
 
 ---
 
-## 5. Bounding Box Rules
+## 4. Asset Model
 
-All bbox validation runs in Pydantic before any GEE call.
+### Required naming convention
+`aurex_<city>_<metric>_2019_2024_monthly_stack_v1.tif`
 
+### Required folder structure
 ```
-Format:  [min_lon, min_lat, max_lon, max_lat]  (WGS84)
-Max area: 50,000 km²   (~225 × 225 km — covers any major city generously)
-Min area: 1 km²        (prevent degenerate point queries)
-```
-
-Why 50,000 km²: Larger areas cause GEE `User memory limit exceeded` errors on the free tier.
-This is enforced as a hard 422 validation error, not a soft warning.
-
----
-
-## 6. Error Handling Architecture
-
-```
-GEE SDK throws ee.EEException
-    └─► gee_service.py catches → raises GEEServiceError(code, detail)
-
-FastAPI route handler catches GEEServiceError
-    └─► returns HTTP 503 with standard error envelope
-
-Pydantic validation fails
-    └─► FastAPI returns HTTP 422 automatically
-
-Any unhandled exception
-    └─► global exception handler → HTTP 500 with generic message
-        (never expose internal stack traces to client)
-
-Frontend
-    └─► All API calls in /services have try/catch
-        └─► Errors propagate to component error state
-            └─► User sees an error card, never a white crash screen
-```
-
-### Standard Error Envelope
-```json
-{
-  "success": false,
-  "data": null,
-  "error": "Human-readable description of what went wrong",
-  "cached": false
-}
+aurex-data/
+  v1/
+    cities/
+      chennai/
+        lst/
+          aurex_chennai_lst_2019_2024_monthly_stack_v1.tif
+        ndvi/
+          aurex_chennai_ndvi_2019_2024_monthly_stack_v1.tif
+      bengaluru/
+        lst/
+          aurex_bengaluru_lst_2019_2024_monthly_stack_v1.tif
+        ndvi/
+          aurex_bengaluru_ndvi_2019_2024_monthly_stack_v1.tif
+      delhi/
+        lst/
+          aurex_delhi_lst_2019_2024_monthly_stack_v1.tif
+        ndvi/
+          aurex_delhi_ndvi_2019_2024_monthly_stack_v1.tif
+    metadata/
+      timeline_index.json
+      color_scales.json
+      cities_extent.geojson
 ```
 
 ---
 
-## 7. Security Architecture
+## 5. Runtime Service Boundaries
 
-| Concern | Mechanism |
-|---------|-----------|
-| GEE credentials | Service account key file, path in .env, file in gitignored /secrets |
-| Frontend API calls | Backend URL only — no GEE keys ever in frontend |
-| Input validation | Pydantic models on all endpoints — strict type coercion |
-| Rate limiting | slowapi: 10 requests/minute per IP (configurable via .env) |
-| CORS | Explicit origin whitelist — never `allow_origins=["*"]` in production |
-| .env files | .env.example committed, actual .env gitignored |
+### Frontend hosting
+- Vercel or Netlify free tier
+
+### Tile API hosting
+- Render free tier (TiTiler)
+
+### Storage
+- Cloudflare R2 free tier (public read objects)
+
+### Optional backend policy
+- If FastAPI remains, it must not be required for map tile rendering.
+- Keep it only for health/status or future lightweight APIs.
 
 ---
 
-## 8. Deployment Architecture
+## 6. Performance and Reliability Rules
 
-```
-Frontend  →  Vercel  (static hosting, automatic deploys from main branch)
-Backend   →  Render / Railway  (Python container)
+1. COG assets must be immutable versioned files (`v1`, `v2`, ...).
+2. Frontend should cache tile URL templates per city+metric+band state.
+3. R2 objects must send long cache headers (`max-age=31536000, immutable`).
+4. TiTiler service should run single-worker on free tier to minimize memory pressure.
+5. Expect and design for free-tier cold starts; show non-blocking loading states.
 
-Environment variables set via platform UI — never in code or committed files.
+---
 
-Cold start mitigation (Render free tier spins down after 15 min inactivity):
-  Option A: Upgrade to paid tier ($7/mo)
-  Option B: UptimeRobot pings /health every 10 minutes (free)
-  Option C: Accept cold start — add a loading message: "Waking up server..."
-```
+## 7. Security Rules (Static Architecture)
+
+1. No secret keys in frontend.
+2. R2 write credentials remain private; frontend uses read-only public URLs only.
+3. CORS allowlists must include only deployed frontend origins.
+4. `.env` and `secrets/` stay gitignored.
+
+---
+
+## 8. Non-Negotiable Rules (v1 Static)
+
+1. Runtime GEE calls are prohibited.
+2. Monthly timeline must map deterministically to band index 1..72.
+3. Visualization ranges are fixed per metric and documented.
+4. City extents are bounded and explicit (no global/unbounded requests).
+5. Any architecture change requires a new ADR entry in `DECISIONS.md`.
+
+---
+
+## 9. Known Free-Tier Constraints
+
+- Render may cold start after idle.
+- TiTiler throughput is limited on free instances.
+- R2 request/egress quotas are finite (usually fine for portfolio traffic).
+- Frontend monthly bandwidth/build minutes are limited.
+
+Design expectation: occasional first-request latency is acceptable; system must remain functional without manual maintenance.
