@@ -1,0 +1,86 @@
+.app {
+  display: grid;
+  grid-template-columns: 320px 1fr;
+  min-height: 100vh;
+  color: #e6ecf5;
+}
+
+.panel {
+  background: #111826;
+  border-right: 1px solid #2a3245;
+  padding: 20px;
+}
+
+.panel h1 {
+  margin: 0;
+  letter-spacing: 0.08em;
+}
+
+.sub {
+  margin: 8px 0 20px;
+  color: #9aa5bb;
+  font-size: 0.92rem;
+}
+
+.control-block {
+  margin-bottom: 20px;
+}
+
+.control-block label {
+  display: block;
+  margin-bottom: 10px;
+  color: #c3cee3;
+}
+
+.toggle-row {
+  display: flex;
+  gap: 8px;
+}
+
+.toggle-row button {
+  border: 1px solid #3f4a63;
+  background: #1a2334;
+  color: #c8d2e6;
+  padding: 8px 14px;
+  cursor: pointer;
+}
+
+.toggle-row button.active {
+  background: #2d3b56;
+  border-color: #7f9bd0;
+}
+
+input[type='range'] {
+  width: 100%;
+}
+
+.hint {
+  margin-top: 8px;
+  color: #9aa5bb;
+  font-size: 0.88rem;
+}
+
+.map-wrap {
+  background: #09101c;
+}
+
+.map {
+  height: 100vh;
+  width: 100%;
+}
+
+@media (max-width: 900px) {
+  .app {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto 1fr;
+  }
+
+  .panel {
+    border-right: 0;
+    border-bottom: 1px solid #2a3245;
+  }
+
+  .map {
+    height: 65vh;
+  }
+}

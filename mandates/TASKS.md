@@ -52,13 +52,19 @@ Deliver a zero-maintenance static geospatial pipeline for AUREX.
 ---
 
 ### TASK-S004 — Cloudflare R2 Setup
-**Status:** Pending
+**Status:** Completed (temporary fallback)
 
 **Acceptance criteria:**
 - Bucket created for AUREX static data.
 - Public read access configured for COG objects.
 - CORS policy set for frontend domain(s).
 - Cache headers set for immutable versioned assets.
+
+**Implementation note (approved fallback):**
+- Due payment-method constraints, Sprint 1 uses GitHub public raw URLs as temporary
+  object hosting for COG files.
+- TiTiler integration is verified against both LST and NDVI COG URLs.
+- Planned upgrade path: migrate storage to R2/B2/S3 in a future hardening sprint.
 
 ---
 

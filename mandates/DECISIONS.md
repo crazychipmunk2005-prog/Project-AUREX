@@ -326,3 +326,29 @@ Live runtime GEE introduced startup failures, quota coupling, and operational fr
 **Alternatives rejected:**
 - Continue live GEE runtime for map interaction
 - Hybrid path where some routes compute from GEE live in production
+
+---
+
+## ADR-013: Temporary Sprint 1 storage fallback to GitHub raw hosting
+
+**Status:** Accepted (temporary)
+**Date:** Static Sprint 1
+
+**Decision:**
+Use GitHub public raw file URLs as temporary object hosting for COG assets during Sprint 1.
+
+**Context:**
+Primary storage target was Cloudflare R2. Billing/payment constraints blocked bucket activation.
+Project needed immediate unblock to validate static COG + TiTiler architecture.
+
+**Rationale:**
+- Zero-cost, immediately available public hosting
+- Works with TiTiler `url=` parameter and supports current demo-scale traffic
+- Allows completion of static pipeline without delaying frontend integration
+
+**Trade-offs:**
+- Not ideal for long-term production durability/performance
+- Limited storage governance and cache-header control compared to object storage platforms
+
+**Exit criteria:**
+- Migrate to R2/B2/S3 once payment method constraints are resolved.
