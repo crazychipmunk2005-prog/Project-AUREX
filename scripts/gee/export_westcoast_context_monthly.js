@@ -3,7 +3,7 @@
 // Output: 72-band monthly stacks for LST and NDVI (2019-01 .. 2024-12)
 
 var START_YEAR = 2019;
-var END_YEAR = 2024;
+var END_YEAR = 2025;
 var EXPORT_SCALE_LST = 1000;
 var EXPORT_SCALE_NDVI = 1000;
 var EXPORT_CRS = 'EPSG:4326';
@@ -31,7 +31,7 @@ var studyArea = ee.Geometry(
 ).dissolve();
 
 Map.centerObject(kerala, 7);
-Map.addLayer(studyArea, {color: 'cyan'}, 'AUREX Study Area');
+Map.addLayer(studyArea, { color: 'cyan' }, 'AUREX Study Area');
 
 var lstCol = ee.ImageCollection('MODIS/061/MOD11A2');
 var ndviCol = ee.ImageCollection('MODIS/061/MOD13A2');
@@ -44,7 +44,7 @@ function monthPairs(startYear, endYear) {
   var out = [];
   for (var y = startYear; y <= endYear; y++) {
     for (var m = 1; m <= 12; m++) {
-      out.push({year: y, month: m});
+      out.push({ year: y, month: m });
     }
   }
   return out;
@@ -83,7 +83,7 @@ function monthlyNDVI(year, month, region) {
 
 function buildStack(metric, region) {
   var pairs = monthPairs(START_YEAR, END_YEAR);
-  var images = pairs.map(function(pair) {
+  var images = pairs.map(function (pair) {
     return metric === 'LST'
       ? monthlyLST(pair.year, pair.month, region)
       : monthlyNDVI(pair.year, pair.month, region);
@@ -104,7 +104,7 @@ Export.image.toDrive({
   crs: EXPORT_CRS,
   maxPixels: 1e13,
   fileFormat: 'GeoTIFF',
-  formatOptions: {cloudOptimized: true}
+  formatOptions: { cloudOptimized: true }
 });
 
 Export.image.toDrive({
@@ -117,5 +117,5 @@ Export.image.toDrive({
   crs: EXPORT_CRS,
   maxPixels: 1e13,
   fileFormat: 'GeoTIFF',
-  formatOptions: {cloudOptimized: true}
+  formatOptions: { cloudOptimized: true }
 });

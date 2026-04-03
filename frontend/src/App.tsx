@@ -1,35 +1,44 @@
 import { useMemo, useState } from 'react'
-import { MapContainer, TileLayer } from 'react-leaflet'
+import { AurexMap } from './components/AurexMap'
+import { ControlPanel } from './components/ControlPanel'
+import { StatusBar } from './components/StatusBar'
+import { CursorProbePanel } from './components/ui/CursorProbePanel'
+import { ErrorToast } from './components/ui/ErrorToast'
+import { LayerControls } from './components/ui/LayerControls'
+import { LoadingOverlay } from './components/ui/LoadingOverlay'
+import { useMapStore } from './store/mapStore'
 import './App.css'
 
 type Metric = 'lst' | 'ndvi'
-type Region = 'westcoast' | 'kerala'
 
 const TITILER_BASE = 'https://aurex-tiles.onrender.com'
 
+const DEFAULT_LST_COG_URL =
+  'https://raw.githubusercontent.com/crazychipmunk2005-prog/Project-AUREX/main/x-data/v1/region/lst/aurex_westcoast_context_lst_2019_2024_monthly_stack_v1.tif'
+const DEFAULT_NDVI_COG_URL =
+  'https://raw.githubusercontent.com/crazychipmunk2005-prog/Project-AUREX/main/x-data/v1/region/ndvi/aurex_westcoast_context_ndvi_2019_2024_monthly_stack_v1.tif'
+
+const END_YEAR_OVERRIDE = Number(import.meta.env.VITE_TIMELINE_END_YEAR)
+const START_YEAR = Number(import.meta.env.VITE_TIMELINE_START_YEAR) || 2019
+const END_YEAR = Number.isFinite(END_YEAR_OVERRIDE) && END_YEAR_OVERRIDE >= START_YEAR
+  ? END_YEAR_OVERRIDE
+  : 2024
+
 const COG_URLS = {
-  lst: 'https://raw.githubusercontent.com/crazychipmunk2005-prog/Project-AUREX/main/x-data/v1/region/lst/aurex_westcoast_context_lst_2019_2024_monthly_stack_v1.tif',
-  ndvi:
-    'https://raw.githubusercontent.com/crazychipmunk2005-prog/Project-AUREX/main/x-data/v1/region/ndvi/aurex_westcoast_context_ndvi_2019_2024_monthly_stack_v1.tif',
+  lst: import.meta.env.VITE_LST_COG_URL ?? DEFAULT_LST_COG_URL,
+  ndvi: import.meta.env.VITE_NDVI_COG_URL ?? DEFAULT_NDVI_COG_URL,
 } as const
 
-const REGION_CONFIG = {
-  westcoast: {
-    label: 'Westcoast Context',
-    center: [10.6, 76.2] as [number, number],
-    zoom: 7,
-    sourceSuffix: '',
-  },
-  kerala: {
-    label: 'Kerala Focus',
-    center: [10.35, 76.35] as [number, number],
-    zoom: 8,
-    sourceSuffix: '?v=2',
-  },
+const KERALA_REGION = {
+  center: [10.45, 76.4] as [number, number],
+  zoom: 8,
+  sourceSuffix: '',
 } as const
 
-const START_YEAR = 2019
-const END_YEAR = 2024
+const KERALA_LOCK_BOUNDS = [
+  [7.2, 73.9],
+  [13.7, 78.5],
+] as [[number, number], [number, number]]
 
 function buildMonthLabels(): string[] {
   const labels: string[] = []
@@ -42,9 +51,10 @@ function buildMonthLabels(): string[] {
 }
 
 const MONTH_LABELS = buildMonthLabels()
+const TOTAL_BANDS = MONTH_LABELS.length
 
-function buildTileUrl(metric: Metric, region: Region, bandIndex: number): string {
-  const sourceUrl = `${COG_URLS[metric]}${REGION_CONFIG[region].sourceSuffix}`
+function buildTileUrl(metric: Metric, bandIndex: number): string {
+  const sourceUrl = `${COG_URLS[metric]}${KERALA_REGION.sourceSuffix}`
   const source = encodeURIComponent(sourceUrl)
   const rescale = metric === 'lst' ? '20,45' : '0,1'
   const colormap = metric === 'lst' ? 'inferno' : 'ylgn'
@@ -53,79 +63,55 @@ function buildTileUrl(metric: Metric, region: Region, bandIndex: number): string
 
 function App() {
   const [metric, setMetric] = useState<Metric>('lst')
-  const [region, setRegion] = useState<Region>('westcoast')
   const [step, setStep] = useState(1)
+  const setAnalysisTileUrl = useMapStore((store) => store.setAnalysisTileUrl)
+  const clearAnalysisTiles = useMapStore((store) => store.clearAnalysisTiles)
+  const setQueryMeta = useMapStore((store) => store.setQueryMeta)
+  const setCursorProbe = useMapStore((store) => store.setCursorProbe)
 
   const selectedMonth = MONTH_LABELS[step - 1]
-  const tileUrl = useMemo(() => buildTileUrl(metric, region, step), [metric, region, step])
+  const tileUrl = useMemo(() => buildTileUrl(metric, step), [metric, step])
+
+  const onMetricChange = (nextMetric: Metric) => {
+    setMetric(nextMetric)
+    setAnalysisTileUrl(null)
+    clearAnalysisTiles()
+    setQueryMeta(null)
+    setCursorProbe(null)
+  }
+
+  const onStepChange = (nextStep: number) => {
+    setStep(nextStep)
+  }
 
   return (
     <div className="app">
-      <aside className="panel">
-        <div className="brand">
-          <img src="/aurex-logo.png" alt="AUREX logo" className="brand-logo" />
-          <h1>AUREX</h1>
-        </div>
-        <p className="sub">Kerala + Lakshadweep Historical Explorer</p>
-
-        <div className="control-block">
-          <label htmlFor="region">Region</label>
-          <select
-            id="region"
-            value={region}
-            onChange={(event) => setRegion(event.target.value as Region)}
-          >
-            <option value="westcoast">Westcoast Context</option>
-            <option value="kerala">Kerala Focus</option>
-          </select>
-        </div>
-
-        <div className="control-block">
-          <label>Metric</label>
-          <div className="toggle-row">
-            <button
-              className={metric === 'lst' ? 'active' : ''}
-              onClick={() => setMetric('lst')}
-            >
-              LST
-            </button>
-            <button
-              className={metric === 'ndvi' ? 'active' : ''}
-              onClick={() => setMetric('ndvi')}
-            >
-              NDVI
-            </button>
-          </div>
-        </div>
-
-        <div className="control-block">
-          <label htmlFor="timeline">Timeline: {selectedMonth}</label>
-          <input
-            id="timeline"
-            type="range"
-            min={1}
-            max={72}
-            value={step}
-            onChange={(event) => setStep(Number(event.target.value))}
-          />
-          <div className="hint">Band {step} of 72</div>
-        </div>
-      </aside>
+      <ControlPanel
+        metric={metric}
+        step={step}
+        selectedMonth={selectedMonth}
+        totalBands={TOTAL_BANDS}
+        timelineStartYear={START_YEAR}
+        onMetricChange={onMetricChange}
+        onStepChange={onStepChange}
+      />
 
       <main className="map-wrap">
-        <MapContainer
-          key={region}
-          center={REGION_CONFIG[region].center}
-          zoom={REGION_CONFIG[region].zoom}
-          className="map"
-        >
-          <TileLayer
-            attribution='&copy; OpenStreetMap contributors'
-            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-          />
-          <TileLayer key={`${metric}-${step}`} url={tileUrl} opacity={0.75} />
-        </MapContainer>
+        <AurexMap
+          center={KERALA_REGION.center}
+          zoom={KERALA_REGION.zoom}
+          maxBounds={KERALA_LOCK_BOUNDS}
+          tileUrl={tileUrl}
+          tileKey={`${metric}-${step}`}
+          step={step}
+          selectedMonth={selectedMonth}
+        />
+        <CursorProbePanel />
+        <StatusBar />
+        <LayerControls />
       </main>
+      <LoadingOverlay />
+      <ErrorToast />
     </div>
   )
 }

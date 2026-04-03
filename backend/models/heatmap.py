@@ -1,5 +1,5 @@
 from datetime import date
-from typing import Annotated, Generic, TypeVar
+from typing import Annotated, Generic, Literal, TypeVar
 
 from pydantic import BaseModel, Field, ValidationInfo, field_validator
 
@@ -18,6 +18,14 @@ class HeatmapData(BaseModel):
     stats: TemperatureStats
 
 
+class ProbeData(BaseModel):
+    lat: float
+    lon: float
+    avg_temp: float
+    anomaly_temp: float
+    wind_speed: float
+
+
 def _compute_bbox_area_km2(bbox: list[float]) -> float:
     min_lon, min_lat, max_lon, max_lat = bbox
     width_deg = max_lon - min_lon
@@ -29,6 +37,7 @@ class HeatmapRequest(BaseModel):
     bbox: BBox
     start_date: date
     end_date: date
+    mode: Literal["absolute", "anomaly"] = "absolute"
 
     @field_validator("bbox")
     @classmethod
@@ -57,8 +66,41 @@ class HeatmapRequest(BaseModel):
             delta = (v - info.data["start_date"]).days
             if delta <= 0:
                 raise ValueError("end_date must be after start_date")
-            if delta > 365:
-                raise ValueError("Date range cannot exceed 365 days")
+        return v
+
+
+class ProbeRequest(BaseModel):
+    lat: float
+    lon: float
+    start_date: date
+    end_date: date
+
+    @field_validator("lat")
+    @classmethod
+    def validate_lat(cls, v: float) -> float:
+        if not (-90 <= v <= 90):
+            raise ValueError("Invalid latitude")
+        return round(v, 6)
+
+    @field_validator("lon")
+    @classmethod
+    def validate_lon(cls, v: float) -> float:
+        if not (-180 <= v <= 180):
+            raise ValueError("Invalid longitude")
+        return round(v, 6)
+
+    @field_validator("start_date")
+    @classmethod
+    def validate_probe_start_date(cls, v: date) -> date:
+        if v < date(2001, 1, 1):
+            raise ValueError("start_date cannot be before 2001-01-01 (MODIS launch)")
+        return v
+
+    @field_validator("end_date")
+    @classmethod
+    def validate_probe_end_date(cls, v: date, info: ValidationInfo) -> date:
+        if "start_date" in info.data and v <= info.data["start_date"]:
+            raise ValueError("end_date must be after start_date")
         return v
 
 
