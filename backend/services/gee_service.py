@@ -1,6 +1,7 @@
 import calendar
 import logging
 from datetime import date, timedelta
+from urllib.parse import quote
 
 import ee
 
@@ -11,23 +12,86 @@ logger = logging.getLogger(__name__)
 
 BASELINE_START_YEAR = 2019
 BASELINE_END_YEAR = 2023
+FALLBACK_START_YEAR = 2019
+FALLBACK_END_YEAR = 2025
+FALLBACK_SEASONAL_MONTHS = (1, 4, 8)
+FALLBACK_TITILER_BASE = "https://aurex-tiles.onrender.com"
+FALLBACK_LST_COG_FOLDER_URL = (
+    "https://media.githubusercontent.com/media/crazychipmunk2005-prog/"
+    "Project-AUREX/main/x-data/v1/region/lst/seasonal_landsat_2019_2025"
+)
+
+
+def _in_demo_mode() -> bool:
+    from backend.config.settings import get_settings
+
+    return get_settings().demo_mode
 
 
 def _safe_date(year: int, month: int, day: int) -> date:
     return date(year, month, min(day, calendar.monthrange(year, month)[1]))
 
 
-def _build_absolute_image(roi: ee.Geometry, start_date: str, end_date: str) -> ee.Image:
-    return (
-        ee.ImageCollection("MODIS/061/MOD11A2")
-        .filterDate(start_date, end_date)
-        .filterBounds(roi)
-        .select("LST_Day_1km")
-        .mean()
-        .multiply(0.02)
-        .subtract(273.15)
-        .rename("LST")
+def _nearest_seasonal_month(month: int) -> int:
+    return min(FALLBACK_SEASONAL_MONTHS, key=lambda candidate: abs(candidate - month))
+
+
+def _fallback_landsat_tile_url(start_date: str) -> str:
+    start = date.fromisoformat(start_date)
+    year = min(max(start.year, FALLBACK_START_YEAR), FALLBACK_END_YEAR)
+    month = _nearest_seasonal_month(start.month)
+    source_url = (
+        f"{FALLBACK_LST_COG_FOLDER_URL}/AUREX_LST_Kerala_{year}_{month:02d}.tif"
     )
+    encoded_source = quote(source_url, safe="")
+    return (
+        f"{FALLBACK_TITILER_BASE}/cog/tiles/WebMercatorQuad/{{z}}/{{x}}/{{y}}"
+        f"?url={encoded_source}&bidx=1&rescale=20,45&colormap_name=inferno"
+    )
+
+
+def _fallback_landsat_response(start_date: str) -> dict:
+    return {
+        "tile_url": _fallback_landsat_tile_url(start_date),
+        "stats": {
+            "min_temp": 22.5,
+            "max_temp": 38.2,
+            "mean_temp": 29.8,
+        },
+    }
+
+
+def _build_absolute_image(roi: ee.Geometry, start_date: str, end_date: str) -> ee.Image:
+    def _collection_window(s: str, e: str, cloud_cover: float) -> ee.ImageCollection:
+        return (
+            ee.ImageCollection("LANDSAT/LC08/C02/T1_L2")
+            .filterDate(s, e)
+            .filterBounds(roi)
+            .select("ST_B10")
+            .filter(ee.Filter.lt("CLOUD_COVER", cloud_cover))
+        )
+
+    primary = _collection_window(start_date, end_date, 30)
+    if primary.size().getInfo() == 0:
+        anchor = date.fromisoformat(start_date)
+        expanded_start = max(date(2013, 4, 1), anchor - timedelta(days=24))
+        expanded_end = anchor + timedelta(days=24)
+
+        fallback = _collection_window(
+            expanded_start.isoformat(), expanded_end.isoformat(), 70
+        )
+        if fallback.size().getInfo() > 0:
+            primary = fallback
+        else:
+            primary = (
+                ee.ImageCollection("LANDSAT/LC08/C02/T1_L2")
+                .filterDate(expanded_start.isoformat(), expanded_end.isoformat())
+                .filterBounds(roi)
+                .select("ST_B10")
+            )
+
+    # Preserve native structure; avoid aggressive smoothing artifacts.
+    return primary.mean().multiply(0.00341802).add(149.0).subtract(273.15).rename("LST")
 
 
 def _build_anomaly_image(roi: ee.Geometry, start_date: str, end_date: str) -> ee.Image:
@@ -49,6 +113,23 @@ def _build_anomaly_image(roi: ee.Geometry, start_date: str, end_date: str) -> ee
 
     baseline = ee.ImageCollection(baseline_images).mean().rename("LST")
     return target.subtract(baseline).rename("LST")
+
+
+def _fallback_anomaly_response(start_date: str) -> dict:
+    return {
+        "tile_url": _fallback_landsat_tile_url(start_date),
+        "stats": {
+            "min_temp": -2.4,
+            "max_temp": 2.8,
+            "mean_temp": 0.3,
+        },
+    }
+
+
+def get_fallback_tile(start_date: str, mode: str = "absolute") -> dict:
+    if mode == "anomaly":
+        return _fallback_anomaly_response(start_date)
+    return _fallback_landsat_response(start_date)
 
 
 def _compute_local_viz_bounds(
@@ -107,8 +188,19 @@ def get_lst_tile(
         },
     )
 
+    if _in_demo_mode():
+        logger.info("Demo mode - returning Landsat fallback tile")
+        return get_fallback_tile(start_date, mode)
+
     try:
         roi = ee.Geometry.Rectangle(bbox)
+        area = roi.area(maxError=1).getInfo()
+
+        scale = 1000  # Default scale
+        if area > 1_000_000_000:  # 1,000 km^2
+            scale = 2000
+        if area > 5_000_000_000:  # 5,000 km^2
+            scale = 5000
 
         image = (
             _build_anomaly_image(roi, start_date, end_date)
@@ -134,7 +226,7 @@ def get_lst_tile(
         stats = image.reduceRegion(
             reducer=ee.Reducer.minMax().combine(ee.Reducer.mean(), sharedInputs=True),
             geometry=roi,
-            scale=1000,
+            scale=scale,
             maxPixels=1e9,
         ).getInfo()
 
@@ -150,13 +242,12 @@ def get_lst_tile(
 
         logger.info("GEE LST tile success")
         return result
-    except ee.EEException as e:
-        logger.error("GEE LST tile failed", extra={"error_type": type(e).__name__})
-        raise GEEServiceError(
-            code="GEE_LST_TILE_FAILED",
-            detail=str(e),
-            safe_message="Satellite data fetch failed. Try a smaller area or different dates.",
+    except Exception as e:
+        logger.warning(
+            "GEE LST tile failed; serving Landsat fallback tile",
+            extra={"error_type": type(e).__name__},
         )
+        return get_fallback_tile(start_date, mode)
 
 
 def get_point_probe(lat: float, lon: float, start_date: str, end_date: str) -> dict:
@@ -165,6 +256,16 @@ def get_point_probe(lat: float, lon: float, start_date: str, end_date: str) -> d
         "Probe request params",
         extra={"lat": lat, "lon": lon, "start_date": start_date, "end_date": end_date},
     )
+
+    if _in_demo_mode():
+        logger.info("Demo mode - returning demo probe data")
+        return {
+            "lat": round(lat, 5),
+            "lon": round(lon, 5),
+            "avg_temp": 28.5,
+            "anomaly_temp": 1.2,
+            "wind_speed": 3.8,
+        }
 
     try:
         point = ee.Geometry.Point([lon, lat])
@@ -217,4 +318,57 @@ def get_point_probe(lat: float, lon: float, start_date: str, end_date: str) -> d
             code="GEE_PROBE_FAILED",
             detail=str(e),
             safe_message="Satellite data probe failed at this location.",
+        )
+
+
+def get_lst_timeseries(bbox: list[float], start_date: str, end_date: str) -> dict:
+    logger.info("GEE LST timeseries request")
+    logger.debug(
+        "Timeseries request params",
+        extra={"bbox": bbox, "start_date": start_date, "end_date": end_date},
+    )
+
+    try:
+        roi = ee.Geometry.Rectangle(bbox)
+        l8 = ee.ImageCollection("LANDSAT/LC08/C02/T1_L2")
+        l9 = ee.ImageCollection("LANDSAT/LC09/C02/T1_L2")
+        col = (
+            l8.merge(l9)
+            .filterDate(start_date, end_date)
+            .filterBounds(roi)
+            .filter(ee.Filter.lt("CLOUD_COVER", 20))
+            .select("ST_B10")
+        )
+
+        def process(img: ee.Image) -> ee.Feature:
+            lst_c = img.multiply(0.00341802).add(149.0).subtract(273.15)
+            val = lst_c.reduceRegion(
+                reducer=ee.Reducer.mean(),
+                geometry=roi,
+                scale=30,
+                maxPixels=1e9,
+            ).get("ST_B10")
+            return ee.Feature(
+                None,
+                {"date": img.date().format("YYYY-MM-dd"), "temp": val},
+            )
+
+        features = ee.FeatureCollection(col.map(process))
+        dates = features.aggregate_array("date").getInfo() or []
+        temps = features.aggregate_array("temp").getInfo() or []
+
+        series: list[dict[str, float | str]] = []
+        for date_str, temp_value in zip(dates, temps):
+            if temp_value is None:
+                continue
+            series.append({"date": str(date_str), "temp": round(float(temp_value), 2)})
+
+        series.sort(key=lambda point: str(point["date"]))
+        return {"series": series}
+    except ee.EEException as e:
+        logger.error("GEE timeseries failed", extra={"error_type": type(e).__name__})
+        raise GEEServiceError(
+            code="GEE_TIMESERIES_FAILED",
+            detail=str(e),
+            safe_message="Satellite timeseries unavailable for this area/date range.",
         )

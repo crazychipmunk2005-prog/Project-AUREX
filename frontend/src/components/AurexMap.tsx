@@ -166,9 +166,10 @@ const CursorProbeLayer = ({ selectedMonth }: { selectedMonth: string }) => {
 }
 
 export function AurexMap({ center, zoom, maxBounds, tileUrl, tileKey, step, selectedMonth }: AurexMapProps) {
-  const tileOpacity = useMapStore((store) => store.tileOpacity)
+  const baseTileOpacity = useMapStore((store) => store.tileOpacity)
   const layerVisible = useMapStore((store) => store.layerVisible)
   const heatmapData = useMapStore((store) => store.heatmapData)
+  const hasAnalysed = useMapStore((store) => store.hasAnalysed)
   const analysisTileUrl = useMapStore((store) => store.analysisTileUrl)
   const analysisTiles = useMapStore((store) => store.analysisTiles)
   const basemap = useMapStore((store) => store.basemap)
@@ -176,6 +177,8 @@ export function AurexMap({ center, zoom, maxBounds, tileUrl, tileKey, step, sele
   const baseMapConfig = getBasemapConfig(basemap, showMapDetails)
   const timelineTile = analysisTiles[step]?.tileUrl
   const activeOverlayUrl = timelineTile ?? analysisTileUrl ?? tileUrl
+  const mapZoom = mapRef.current?.getZoom() ?? zoom
+  const tileOpacity = mapZoom >= 14 ? Math.min(baseTileOpacity, 0.42) : mapZoom >= 12 ? Math.min(baseTileOpacity, 0.58) : baseTileOpacity
   const activeOverlayKey = timelineTile
     ? `analysis-band-${step}`
     : analysisTileUrl
@@ -186,11 +189,12 @@ export function AurexMap({ center, zoom, maxBounds, tileUrl, tileKey, step, sele
     <MapContainer
       center={center}
       zoom={zoom}
+      scrollWheelZoom={true}
       className="map"
       maxBounds={maxBounds}
       maxBoundsViscosity={1}
       minZoom={7}
-      maxZoom={12}
+      maxZoom={18}
     >
       <MapRefSetter />
       <BoundaryOverlay />
@@ -202,7 +206,7 @@ export function AurexMap({ center, zoom, maxBounds, tileUrl, tileKey, step, sele
           opacity={0.9}
         />
       ) : null}
-      {layerVisible && heatmapData ? (
+      {hasAnalysed && layerVisible && heatmapData ? (
         <TileOverlay tileKey={activeOverlayKey} tileUrl={activeOverlayUrl} opacity={tileOpacity} />
       ) : null}
       <CursorProbeLayer selectedMonth={selectedMonth} />

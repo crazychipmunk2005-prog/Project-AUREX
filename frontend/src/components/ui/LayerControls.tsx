@@ -19,8 +19,8 @@ export function LayerControls() {
       <input
         id="opacity"
         type="range"
-        min={0.2}
-        max={1}
+        min={0.05}
+        max={0.9}
         step={0.05}
         value={tileOpacity}
         onChange={(event) => setTileOpacity(Number(event.target.value))}

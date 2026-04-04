@@ -10,7 +10,7 @@ export function LoadingOverlay() {
         <span className="ring ring-b" />
       </div>
       <div className="loading-title">ANALYSING THERMAL DATA...</div>
-      <div className="loading-subtext">Querying MODIS satellite archive</div>
+      <div className="loading-subtext">Querying Landsat satellite archive</div>
     </div>
   )
 }

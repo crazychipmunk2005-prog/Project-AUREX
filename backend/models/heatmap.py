@@ -55,8 +55,10 @@ class HeatmapRequest(BaseModel):
     @field_validator("start_date")
     @classmethod
     def validate_start_date(cls, v: date) -> date:
-        if v < date(2001, 1, 1):
-            raise ValueError("start_date cannot be before 2001-01-01 (MODIS launch)")
+        if v < date(2013, 4, 1):
+            raise ValueError(
+                "start_date cannot be before 2013-04-01 (Landsat 8 launch)"
+            )
         return v
 
     @field_validator("end_date")
@@ -92,8 +94,10 @@ class ProbeRequest(BaseModel):
     @field_validator("start_date")
     @classmethod
     def validate_probe_start_date(cls, v: date) -> date:
-        if v < date(2001, 1, 1):
-            raise ValueError("start_date cannot be before 2001-01-01 (MODIS launch)")
+        if v < date(2013, 4, 1):
+            raise ValueError(
+                "start_date cannot be before 2013-04-01 (Landsat 8 launch)"
+            )
         return v
 
     @field_validator("end_date")

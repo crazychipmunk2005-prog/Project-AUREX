@@ -212,6 +212,20 @@ input[type='range'] {
   letter-spacing: 0.02em;
 }
 
+.viewport-scale {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 950;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--bg-panel) 92%, transparent);
+  color: var(--text-secondary);
+  padding: 6px 10px;
+  font-size: 0.75rem;
+  letter-spacing: 0.04em;
+}
+
 @keyframes status-fade-in {
   from {
     transform: translateY(6px);
@@ -311,6 +325,18 @@ input[type='range'] {
   cursor: pointer;
 }
 
+.analyse-btn .btn-spinner {
+  display: inline-block;
+  width: 11px;
+  height: 11px;
+  margin-right: 6px;
+  border: 2px solid var(--border-soft);
+  border-top-color: var(--text-primary);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  vertical-align: -2px;
+}
+
 .analyse-btn:disabled {
   opacity: 0.45;
   cursor: not-allowed;
@@ -347,6 +373,10 @@ input[type='range'] {
 .map {
   height: 100vh;
   width: 100%;
+}
+
+.heat-overlay {
+  image-rendering: pixelated;
 }
 
 .cursor-probe {
@@ -542,5 +572,12 @@ input[type='range'] {
     top: 8px;
     left: 8px;
     right: 8px;
+  }
+
+  .viewport-scale {
+    top: 8px;
+    right: 8px;
+    font-size: 0.72rem;
+    padding: 6px 8px;
   }
 }

@@ -1,4 +1,5 @@
 import logging
+import tempfile
 from contextlib import asynccontextmanager
 from typing import AsyncIterator
 
@@ -15,6 +16,7 @@ except ImportError:  # pragma: no cover
 from backend.config.settings import get_settings
 from backend.routes.heatmap import router as heatmap_router
 from backend.routes.health import router as health_router
+from backend.routes.timeseries import router as timeseries_router
 from backend.utils.security_headers import SecurityHeadersMiddleware
 
 
@@ -63,10 +65,21 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     if ee is None:
         raise RuntimeError("earthengine-api is required when DEMO_MODE=false")
 
+    temp_key_path = None
+
     try:
+        key_path = settings.resolved_gee_key_file
+        if settings.gee_key_json:
+            with tempfile.NamedTemporaryFile(
+                mode="w", suffix=".json", delete=False, encoding="utf-8"
+            ) as temp_key:
+                temp_key.write(settings.gee_key_json)
+                temp_key_path = temp_key.name
+            key_path = temp_key_path
+
         credentials = ee.ServiceAccountCredentials(
             settings.gee_service_account,
-            settings.gee_key_file,
+            key_path,
         )
         ee.Initialize(credentials, project=settings.gee_project_id)
         app.state.gee_available = True
@@ -76,6 +89,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             "GEE initialization failed; continuing without live GEE",
             exc_info=exc,
         )
+    finally:
+        if temp_key_path:
+            try:
+                import os
+
+                os.unlink(temp_key_path)
+            except OSError:
+                pass
 
     yield
 
@@ -99,6 +120,7 @@ app.add_middleware(RequestSizeLimitMiddleware, max_body_size=10 * 1024)
 
 app.include_router(health_router)
 app.include_router(heatmap_router)
+app.include_router(timeseries_router)
 
 
 @app.exception_handler(Exception)

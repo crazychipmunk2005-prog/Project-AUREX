@@ -7,5 +7,5 @@ type TileOverlayProps = {
 }
 
 export function TileOverlay({ tileKey, tileUrl, opacity }: TileOverlayProps) {
-  return <TileLayer key={tileKey} url={tileUrl} opacity={opacity} />
+  return <TileLayer key={tileKey} url={tileUrl} opacity={opacity} className="heat-overlay" />
 }

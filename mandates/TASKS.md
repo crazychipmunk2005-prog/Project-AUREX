@@ -45,7 +45,7 @@ Deliver a zero-maintenance static geospatial pipeline for AUREX.
 
 **Acceptance criteria:**
 - TiTiler endpoint pattern documented and tested:
-  `/cog/tiles/{z}/{x}/{y}?url=<cog_url>&bidx=<band>&rescale=<min,max>&colormap_name=<name>`
+  `/cog/tiles/WebMercatorQuad/{z}/{x}/{y}?url=<cog_url>&bidx=<band>&rescale=<min,max>&colormap_name=<name>`
 - One smoke test confirms 200 response for a valid COG URL.
 - CORS allows frontend domain(s).
 

@@ -8,6 +8,7 @@ type MapStoreState = {
   heatmapData: boolean
   tileOpacity: number
   layerVisible: boolean
+  hasAnalysed: boolean
   error: string | null
   loading: boolean
   queryMeta: {
@@ -21,6 +22,8 @@ type MapStoreState = {
   cursorProbe: ProbeData | null
   basemap: 'street' | 'satellite' | 'terrain'
   showMapDetails: boolean
+  timeseriesData: { series: Array<{ date: string; temp: number }>; image_count: number } | null
+  timeseriesLoading: boolean
 }
 
 type MapStoreActions = {
@@ -38,14 +41,18 @@ type MapStoreActions = {
   setBasemap: (basemap: 'street' | 'satellite' | 'terrain') => void
   toggleMapDetails: () => void
   setLayerVisible: (visible: boolean) => void
+  setHasAnalysed: (value: boolean) => void
+  setTimeseriesData: (data: { series: Array<{ date: string; temp: number }>; image_count: number } | null) => void
+  setTimeseriesLoading: (loading: boolean) => void
 }
 
 let state: MapStoreState = {
   bbox: DEFAULT_BBOX,
   boundaryGeoJson: null,
   heatmapData: true,
-  tileOpacity: 0.75,
+  tileOpacity: 0.5,
   layerVisible: true,
+  hasAnalysed: false,
   error: null,
   loading: false,
   queryMeta: null,
@@ -54,6 +61,8 @@ let state: MapStoreState = {
   cursorProbe: null,
   basemap: 'street',
   showMapDetails: true,
+  timeseriesData: null,
+  timeseriesLoading: false,
 }
 
 const listeners = new Set<() => void>()
@@ -68,7 +77,7 @@ const actions: MapStoreActions = {
     listeners.forEach((listener) => listener())
   },
   setTileOpacity: (n) => {
-    const tileOpacity = Math.max(0.2, Math.min(1, n))
+    const tileOpacity = Math.max(0.05, Math.min(0.9, n))
     state = { ...state, tileOpacity }
     listeners.forEach((listener) => listener())
   },
@@ -117,6 +126,18 @@ const actions: MapStoreActions = {
   },
   setLayerVisible: (visible) => {
     state = { ...state, layerVisible: visible }
+    listeners.forEach((listener) => listener())
+  },
+  setHasAnalysed: (value) => {
+    state = { ...state, hasAnalysed: value }
+    listeners.forEach((listener) => listener())
+  },
+  setTimeseriesData: (data) => {
+    state = { ...state, timeseriesData: data }
+    listeners.forEach((listener) => listener())
+  },
+  setTimeseriesLoading: (loading) => {
+    state = { ...state, timeseriesLoading: loading }
     listeners.forEach((listener) => listener())
   },
 }

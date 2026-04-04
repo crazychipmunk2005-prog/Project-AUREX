@@ -79,7 +79,7 @@ Used by: timeline slider + metric toggle + city selection
    ├─ User picks city + metric + month step (1..72)
    │
    ├─ Build TiTiler URL:
-   │   /cog/tiles/{z}/{x}/{y}?url=<cog_url>&bidx=<band>&rescale=<min,max>&colormap_name=<name>
+   │   /cog/tiles/WebMercatorQuad/{z}/{x}/{y}?url=<cog_url>&bidx=<band>&rescale=<min,max>&colormap_name=<name>
    │
    ├─► TiTiler reads COG from Cloudflare R2
    │

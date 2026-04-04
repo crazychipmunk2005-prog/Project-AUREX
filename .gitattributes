@@ -1,2 +1,4 @@
-*.tif filter=lfs diff=lfs merge=lfs -text
-*.tiff filter=lfs diff=lfs merge=lfs -text
+# Intentionally disable git-lfs filters for TIFFs so Render clone does not fail
+# when LFS budget is exhausted. Runtime data is fetched from remote object URLs.
+*.tif -filter -diff -merge text
+*.tiff -filter -diff -merge text
