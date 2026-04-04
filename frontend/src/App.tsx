@@ -13,21 +13,19 @@ type Metric = 'lst' | 'ndvi'
 
 const TITILER_BASE = 'https://aurex-tiles.onrender.com'
 
-const DEFAULT_LST_COG_URL =
-  'https://raw.githubusercontent.com/crazychipmunk2005-prog/Project-AUREX/main/x-data/v1/region/lst/aurex_westcoast_context_lst_2019_2024_monthly_stack_v1.tif'
+const DEFAULT_LST_COG_FOLDER_URL =
+  'https://raw.githubusercontent.com/crazychipmunk2005-prog/Project-AUREX/main/x-data/v1/region/lst/seasonal_landsat_2019_2025'
+const DEFAULT_LST_COG_FILE_TEMPLATE = 'AUREX_LST_Kerala_{yyyy}_{mm}.tif'
 const DEFAULT_NDVI_COG_URL =
   'https://raw.githubusercontent.com/crazychipmunk2005-prog/Project-AUREX/main/x-data/v1/region/ndvi/aurex_westcoast_context_ndvi_2019_2024_monthly_stack_v1.tif'
 
-const END_YEAR_OVERRIDE = Number(import.meta.env.VITE_TIMELINE_END_YEAR)
+const LST_END_YEAR = Number(import.meta.env.VITE_LST_END_YEAR) || 2025
+const NDVI_END_YEAR = Number(import.meta.env.VITE_TIMELINE_END_YEAR) || 2024
 const START_YEAR = Number(import.meta.env.VITE_TIMELINE_START_YEAR) || 2019
-const END_YEAR = Number.isFinite(END_YEAR_OVERRIDE) && END_YEAR_OVERRIDE >= START_YEAR
-  ? END_YEAR_OVERRIDE
-  : 2024
 
-const COG_URLS = {
-  lst: import.meta.env.VITE_LST_COG_URL ?? DEFAULT_LST_COG_URL,
-  ndvi: import.meta.env.VITE_NDVI_COG_URL ?? DEFAULT_NDVI_COG_URL,
-} as const
+const LST_COG_FOLDER_URL = import.meta.env.VITE_LST_COG_FOLDER_URL ?? DEFAULT_LST_COG_FOLDER_URL
+const LST_COG_FILE_TEMPLATE = import.meta.env.VITE_LST_COG_FILE_TEMPLATE ?? DEFAULT_LST_COG_FILE_TEMPLATE
+const NDVI_COG_URL = import.meta.env.VITE_NDVI_COG_URL ?? DEFAULT_NDVI_COG_URL
 
 const KERALA_REGION = {
   center: [10.45, 76.4] as [number, number],
@@ -42,7 +40,7 @@ const KERALA_LOCK_BOUNDS = [
 
 function buildMonthLabels(): string[] {
   const labels: string[] = []
-  for (let y = START_YEAR; y <= END_YEAR; y += 1) {
+  for (let y = START_YEAR; y <= NDVI_END_YEAR; y += 1) {
     for (let m = 1; m <= 12; m += 1) {
       labels.push(`${y}-${String(m).padStart(2, '0')}`)
     }
@@ -50,15 +48,43 @@ function buildMonthLabels(): string[] {
   return labels
 }
 
-const MONTH_LABELS = buildMonthLabels()
-const TOTAL_BANDS = MONTH_LABELS.length
+function buildSeasonalMonthLabels(startYear: number, endYear: number): string[] {
+  const labels: string[] = []
+  const seasonalMonths = [1, 4, 8]
+  for (let y = startYear; y <= endYear; y += 1) {
+    for (const m of seasonalMonths) {
+      labels.push(`${y}-${String(m).padStart(2, '0')}`)
+    }
+  }
+  return labels
+}
 
-function buildTileUrl(metric: Metric, bandIndex: number): string {
-  const sourceUrl = `${COG_URLS[metric]}${KERALA_REGION.sourceSuffix}`
+const NDVI_MONTH_LABELS = buildMonthLabels()
+const LST_MONTH_LABELS = buildSeasonalMonthLabels(START_YEAR, LST_END_YEAR)
+
+function getMonthLabelsForMetric(metric: Metric): string[] {
+  return metric === 'lst' ? LST_MONTH_LABELS : NDVI_MONTH_LABELS
+}
+
+function buildLstCogFileName(monthLabel: string): string {
+  const [year, month] = monthLabel.split('-')
+  return LST_COG_FILE_TEMPLATE
+    .replace('{yyyy}', year)
+    .replace('{mm}', month)
+}
+
+function buildTileUrl(metric: Metric, bandIndex: number, monthLabels: string[]): string {
+  const clampedBandIndex = Math.max(1, Math.min(monthLabels.length, bandIndex))
+  const monthLabel = monthLabels[clampedBandIndex - 1]
+  const lstSourceUrl = `${LST_COG_FOLDER_URL}/${buildLstCogFileName(monthLabel)}`
+  const sourceUrl = metric === 'lst'
+    ? `${lstSourceUrl}${KERALA_REGION.sourceSuffix}`
+    : `${NDVI_COG_URL}${KERALA_REGION.sourceSuffix}`
   const source = encodeURIComponent(sourceUrl)
   const rescale = metric === 'lst' ? '20,45' : '0,1'
   const colormap = metric === 'lst' ? 'inferno' : 'ylgn'
-  return `${TITILER_BASE}/cog/tiles/{z}/{x}/{y}?url=${source}&bidx=${bandIndex}&rescale=${rescale}&colormap_name=${colormap}`
+  const resolvedBandIndex = metric === 'lst' ? 1 : clampedBandIndex
+  return `${TITILER_BASE}/cog/tiles/{z}/{x}/{y}?url=${source}&bidx=${resolvedBandIndex}&rescale=${rescale}&colormap_name=${colormap}`
 }
 
 function App() {
@@ -69,11 +95,16 @@ function App() {
   const setQueryMeta = useMapStore((store) => store.setQueryMeta)
   const setCursorProbe = useMapStore((store) => store.setCursorProbe)
 
-  const selectedMonth = MONTH_LABELS[step - 1]
-  const tileUrl = useMemo(() => buildTileUrl(metric, step), [metric, step])
+  const monthLabels = useMemo(() => getMonthLabelsForMetric(metric), [metric])
+  const totalBands = monthLabels.length
+  const safeStep = Math.max(1, Math.min(totalBands, step))
+  const selectedMonth = monthLabels[safeStep - 1]
+  const tileUrl = useMemo(() => buildTileUrl(metric, safeStep, monthLabels), [metric, monthLabels, safeStep])
 
   const onMetricChange = (nextMetric: Metric) => {
+    const nextMonthLabels = getMonthLabelsForMetric(nextMetric)
     setMetric(nextMetric)
+    setStep((currentStep) => Math.max(1, Math.min(nextMonthLabels.length, currentStep)))
     setAnalysisTileUrl(null)
     clearAnalysisTiles()
     setQueryMeta(null)
@@ -88,10 +119,10 @@ function App() {
     <div className="app">
       <ControlPanel
         metric={metric}
-        step={step}
+        step={safeStep}
         selectedMonth={selectedMonth}
-        totalBands={TOTAL_BANDS}
-        timelineStartYear={START_YEAR}
+        totalBands={totalBands}
+        timelineMonthLabels={monthLabels}
         onMetricChange={onMetricChange}
         onStepChange={onStepChange}
       />
@@ -102,8 +133,8 @@ function App() {
           zoom={KERALA_REGION.zoom}
           maxBounds={KERALA_LOCK_BOUNDS}
           tileUrl={tileUrl}
-          tileKey={`${metric}-${step}`}
-          step={step}
+          tileKey={`${metric}-${safeStep}`}
+          step={safeStep}
           selectedMonth={selectedMonth}
         />
         <CursorProbePanel />

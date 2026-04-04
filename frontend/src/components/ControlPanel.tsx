@@ -13,7 +13,7 @@ type ControlPanelProps = {
   step: number
   selectedMonth: string
   totalBands: number
-  timelineStartYear: number
+  timelineMonthLabels: string[]
   onMetricChange: (metric: Metric) => void
   onStepChange: (step: number) => void
 }
@@ -21,10 +21,12 @@ type ControlPanelProps = {
 const MAX_AREA_KM2 = 50_000
 const TIMELINE_STOP_COUNT = 10
 
-function dateRangeFromBand(band: number, totalBands: number, timelineStartYear: number): { start: string; end: string } {
-  const index = Math.max(1, Math.min(totalBands, band)) - 1
-  const year = timelineStartYear + Math.floor(index / 12)
-  const month = (index % 12) + 1
+function dateRangeFromBand(band: number, timelineMonthLabels: string[]): { start: string; end: string } {
+  const index = Math.max(1, Math.min(timelineMonthLabels.length, band)) - 1
+  const monthLabel = timelineMonthLabels[index] ?? timelineMonthLabels[0] ?? '2019-01'
+  const [yearStr, monthStr] = monthLabel.split('-')
+  const year = Number(yearStr)
+  const month = Number(monthStr)
   const start = new Date(Date.UTC(year, month - 1, 1))
   const end = new Date(Date.UTC(year, month, 0))
   const toIso = (value: Date) => value.toISOString().slice(0, 10)
@@ -71,7 +73,7 @@ export function ControlPanel({
   step,
   selectedMonth,
   totalBands,
-  timelineStartYear,
+  timelineMonthLabels,
   onMetricChange,
   onStepChange,
 }: ControlPanelProps) {
@@ -178,7 +180,7 @@ export function ControlPanel({
     analysisBBox: BBox,
     band: number,
   ): Promise<{ success: boolean; cached: boolean; tileUrl: string | null; startDate: string; endDate: string }> => {
-        const range = dateRangeFromBand(band, totalBands, timelineStartYear)
+        const range = dateRangeFromBand(band, timelineMonthLabels)
     const response = await fetchHeatmap({
       bbox: [analysisBBox.minLon, analysisBBox.minLat, analysisBBox.maxLon, analysisBBox.maxLat],
       start_date: range.start,
@@ -253,7 +255,7 @@ export function ControlPanel({
     const band = timelineBands[index] ?? step
     onStepChange(band)
 
-    const range = dateRangeFromBand(band, totalBands, timelineStartYear)
+    const range = dateRangeFromBand(band, timelineMonthLabels)
     setStartDate(range.start)
     setEndDate(range.end)
 
